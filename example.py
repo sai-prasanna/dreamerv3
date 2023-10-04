@@ -29,7 +29,7 @@ def main():
       embodied.logger.JSONLOutput(logdir, 'metrics.jsonl'),
       embodied.logger.TensorBoardOutput(logdir),
       # embodied.logger.WandBOutput(wandb_init_kwargs={
-      #     'project': 'dreamerv3',
+      #     'project': 'dreamerv3-compat',
       #     'name': logdir.name,
       #     'config': dict(config),
       # }),

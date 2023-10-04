@@ -12,3 +12,7 @@ rich
 ruamel.yaml
 tensorflow-cpu
 tensorflow_probability
+
+# wandb
+# moviepy # Needed for gif/video saving to wandb
+# imageio # Needed for gif/video saving to wandb
