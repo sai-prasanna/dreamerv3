@@ -9,7 +9,7 @@ jaxlib
 numpy
 optax
 rich
-ruamel.yaml
+ruamel.yaml<0.18.0 # safe_dump is deprecated (and removed) from 0.18.0 and above
 tensorflow-cpu
 tensorflow_probability
 
