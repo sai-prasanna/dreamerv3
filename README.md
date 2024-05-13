@@ -1,4 +1,14 @@
-# Mastering Diverse Domains through World Models
+# Compatibility Notes
+
+**This repository is forked to provide compatibility with gym==0.26.2 and gymnasium API's needed for use with the latest AnimalAI.**
+
+**A template repository combining AnimalAI and DreamerV3 can be found [here](https://github.com/Kinds-of-Intelligence-CFI/dreamerv3-animalai).**
+
+Other changes:
+
+- Makes the wandb logging configuration fully customizable. Note: wandb support requires more dependencies than just wandb, check requirements.txt.
+
+# Mastering Diverse Domains through World Models (Original README)
 
 A reimplementation of [DreamerV3][paper], a scalable and general reinforcement
 learning algorithm that masters a wide range of applications with fixed
@@ -49,6 +59,8 @@ increases data efficiency.
 # Instructions
 
 The code has been tested on Linux and Mac and requires Python 3.11+.
+
+**Note: Install jax with GPU support first and separately if you want GPU support.**
 
 ## Docker
 
