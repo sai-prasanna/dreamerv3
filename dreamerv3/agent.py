@@ -1,16 +1,16 @@
+import copy
 import re
 from functools import partial as bind
 
-import embodied
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import ruamel.yaml as yaml
 
-from . import jaxagent
-from . import jaxutils
-from . import nets
+import embodied
+
+from . import jaxagent, jaxutils, nets
 from . import ninjax as nj
 
 f32 = jnp.float32
@@ -132,10 +132,15 @@ class Agent(nj.Module):
     prevlat, prevact = carry
     obs = self.preprocess(obs)
     embed = self.enc(obs, bdims=1)
+    context = obs['context'] if self.dyn.is_contextual else None
     prevact = jaxutils.onehot_dict(prevact, self.act_space)
     lat, out = self.dyn.observe(
-        prevlat, prevact, embed, obs['is_first'], bdims=1)
-    actor = self.actor(out, bdims=1)
+        prevlat, prevact, embed, obs['is_first'], context=context, bdims=1)
+    if context is not None:
+        actor_inp = {**out, 'context': context}
+    else:
+        actor_inp = out
+    actor = self.actor(actor_inp, bdims=1)
     act = sample(actor)
 
     outs = {}
@@ -225,6 +230,9 @@ class Agent(nj.Module):
   def loss(self, data, carry, update=True):
     metrics = {}
     prevlat, prevact = carry
+    if not self.dyn.is_contextual:
+      data = copy.copy(data)
+      data['context'] = None
 
     # Replay rollout
     prevacts = {
@@ -232,12 +240,20 @@ class Agent(nj.Module):
         for k in self.act_space}
     prevacts = jaxutils.onehot_dict(prevacts, self.act_space)
     embed = self.enc(data)
-    newlat, outs = self.dyn.observe(prevlat, prevacts, embed, data['is_first'])
+    newlat, outs = self.dyn.observe(prevlat, prevacts, embed, data['is_first'], context=data['context'])
     rew_feat = outs if self.config.reward_grad else sg(outs)
+    if 'context' in self.config.rewhead.inputs:
+      rew_feat = {**rew_feat, 'context': data['context']}
+    cont_feat = outs
+    if 'context' in self.config.conhead.inputs:
+      cont_feat = {**cont_feat, 'context': data['context']}
+    dec_feat = outs
+    if 'context' in self.config.dec.simple.inputs:
+      dec_feat = {**dec_feat, 'context': data['context']}
     dists = dict(
-        **self.dec(outs),
+        **self.dec(dec_feat),
         reward=self.rew(rew_feat, training=True),
-        cont=self.con(outs, training=True))
+        cont=self.con(cont_feat, training=True))
     losses = {k: -v.log_prob(f32(data[k])) for k, v in dists.items()}
     if self.config.contdisc:
       del losses['cont']
@@ -250,31 +266,49 @@ class Agent(nj.Module):
 
     # Imagination rollout
     def imgstep(carry, _):
-      lat, act = carry
-      lat, out = self.dyn.imagine(lat, act, bdims=1)
+      lat, act, context = carry
+      lat, out = self.dyn.imagine(lat, act, context, bdims=1)
       out['stoch'] = sg(out['stoch'])
-      act = cast(sample(self.actor(out, bdims=1)))
-      return (lat, act), (out, act)
+      if 'context' in self.config.actor.inputs:
+        actor_inp = {**out, 'context': context}
+        out['context'] = context
+      else:
+        actor_inp = out
+      act = cast(sample(self.actor(actor_inp, bdims=1)))
+      return (lat, act, context), (out, act)
     rew = data['reward']
     con = 1 - f32(data['is_terminal'])
+    startcontext = None
     if self.config.imag_start == 'all':
       B, T = data['is_first'].shape
       startlat = self.dyn.outs_to_carry(treemap(
           lambda x: x.reshape((B * T, 1, *x.shape[2:])), replay_outs))
       startout, startrew, startcon = treemap(
-          lambda x: x.reshape((B * T, *x.shape[2:])),
+          lambda x: x.reshape((B * T, *x.shape[2:])), 
           (replay_outs, rew, con))
+      if self.dyn.is_contextual:
+        startcontext = data['context'].reshape(
+            (B * T, 1, *data['context'].shape[2:]))
+        startout['context'] = startcontext
     elif self.config.imag_start == 'last':
       startlat = newlat
       startout, startrew, startcon = treemap(
           lambda x: x[:, -1], (replay_outs, rew, con))
+      if self.dyn.is_contextual:
+        startcontext = data['context'][:, -1]
+        startout['context'] = startcontext
     if self.config.imag_repeat > 1:
       N = self.config.imag_repeat
       startlat, startout, startrew, startcon = treemap(
           lambda x: x.repeat(N, 0), (startlat, startout, startrew, startcon))
-    startact = cast(sample(self.actor(startout, bdims=1)))
+      if self.dyn.is_contextual:
+        startcontext = startcontext.repeat(N, 0)
+    start_act_inp = startout
+    if self.dyn.is_contextual:
+      start_act_inp = {**start_act_inp, 'context': startcontext}
+    startact = cast(sample(self.actor(start_act_inp, bdims=1)))
     _, (outs, acts) = jaxutils.scan(
-        imgstep, sg((startlat, startact)),
+        imgstep, sg((startlat, startact, startcontext)),
         jnp.arange(self.config.imag_length), self.config.imag_unroll)
     outs, acts = treemap(lambda x: x.swapaxes(0, 1), (outs, acts))
     outs, acts = treemap(
@@ -329,9 +363,11 @@ class Agent(nj.Module):
         self.config.slowreg * critic.log_prob(sg(slowcritic.mean())))[:, :-1]
 
     if self.config.replay_critic_loss:
-      replay_critic = self.critic(
-          replay_outs if self.config.replay_critic_grad else sg(replay_outs))
-      replay_slowcritic = self.slowcritic(replay_outs)
+      critic_inp = replay_outs if self.config.replay_critic_grad else sg(replay_outs)
+      if 'context' in self.config.critic.inputs:
+        critic_inp = {**critic_inp, 'context': data['context']}
+      replay_critic = self.critic(critic_inp)
+      replay_slowcritic = self.slowcritic(critic_inp)
       boot = dict(
           imag=ret[:, 0].reshape(data['reward'].shape),
           critic=replay_critic.mean(),
@@ -419,9 +455,13 @@ class Agent(nj.Module):
         carry[0],
         {k: v[:, :num_obs] for k, v in outs['prevacts'].items()},
         outs['embed'][:, :num_obs],
-        data['is_first'][:, :num_obs])
+        data['is_first'][:, :num_obs],
+        context=(data['context'][:, :num_obs] if self.dyn.is_contextual else None))
     img_acts = {k: v[:, num_obs:] for k, v in outs['prevacts'].items()}
-    img_outs = self.dyn.imagine(img_start, img_acts)[1]
+    img_context = data['context'][:, num_obs:] if self.dyn.is_contextual else None
+    img_outs = self.dyn.imagine(img_start, img_acts, img_context)[1]
+    rec_outs['context'] = data['context'][:, :num_obs] if self.dyn.is_contextual else None
+    img_outs['context'] = data['context'][:, num_obs:] if self.dyn.is_contextual else None
     rec = dict(
         **self.dec(rec_outs), reward=self.rew(rec_outs),
         cont=self.con(rec_outs))

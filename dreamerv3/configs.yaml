@@ -110,7 +110,7 @@ defaults:
   # World Model
   dyn:
     typ: rssm
-    rssm: {deter: 8192, hidden: 1024, stoch: 32, classes: 64, act: silu, norm: rms, unimix: 0.01, outscale: 1.0, winit: normal, imglayers: 2, obslayers: 1, dynlayers: 1, absolute: False, cell: blockgru, blocks: 8, block_fans: False, block_norm: False}
+    rssm: {deter: 8192, hidden: 1024, stoch: 32, classes: 64, act: silu, norm: rms, unimix: 0.01, outscale: 1.0, winit: normal, imglayers: 2, obslayers: 1, dynlayers: 1, absolute: False, cell: blockgru, blocks: 8, block_fans: False, block_norm: False, is_contextual: False}
   enc:
     spaces: '.*'
     typ: simple

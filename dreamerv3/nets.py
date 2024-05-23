@@ -32,6 +32,7 @@ class RSSM(nj.Module):
   blocks: int = 8
   block_fans: bool = False
   block_norm: bool = False
+  is_contextual: bool = False
 
   def __init__(self, **kw):
     self.kw = kw
@@ -50,19 +51,19 @@ class RSSM(nj.Module):
       keys += ('feat',)
     return {k: outs[k][:, -1] for k in keys}
 
-  def observe(self, carry, action, embed, reset, bdims=2):
+  def observe(self, carry, action, embed, reset, context, bdims=2):
     kw = dict(**self.kw, norm=self.norm, act=self.act)
     assert bdims in (1, 2)
     if isinstance(action, dict):
       action = jaxutils.concat_dict(action)
-    carry, action, embed = cast((carry, action, embed))
+    carry, action, embed, context = cast((carry, action, embed, context))
     if bdims == 2:
       return jaxutils.scan(
           lambda carry, inputs: self.observe(carry, *inputs, bdims=1),
-          carry, (action, embed, reset), self.unroll, axis=1)
+          carry, (action, embed, reset, context), self.unroll, axis=1)
     deter, stoch, action = jaxutils.reset(
         (carry['deter'], carry['stoch'], action), reset)
-    deter, feat = self._gru(deter, stoch, action)
+    deter, feat = self._gru(deter, stoch, action, context)
     x = embed if self.absolute else jnp.concatenate([feat, embed], -1)
     for i in range(self.obslayers):
       x = self.get(f'obs{i}', Linear, self.hidden, **kw)(x)
@@ -75,16 +76,16 @@ class RSSM(nj.Module):
       outs['feat'] = feat
     return cast(carry), cast(outs)
 
-  def imagine(self, carry, action, bdims=2):
+  def imagine(self, carry, action, context, bdims=2):
     assert bdims in (1, 2)
     if isinstance(action, dict):
       action = jaxutils.concat_dict(action)
-    carry, action = cast((carry, action))
+    carry, action, context = cast((carry, action, context))
     if bdims == 2:
       return jaxutils.scan(
-          lambda carry, action: self.imagine(carry, action, bdims=1),
-          cast(carry), cast(action), self.unroll, axis=1)
-    deter, feat = self._gru(carry['deter'], carry['stoch'], action)
+          lambda carry, inputs: self.imagine(carry, *inputs, bdims=1),
+          cast(carry), (cast(action), context), self.unroll, axis=1)
+    deter, feat = self._gru(carry['deter'], carry['stoch'], action, context)
     logit = self._prior(feat)
     stoch = cast(self._dist(logit).sample(seed=nj.seed()))
     carry = dict(deter=deter, stoch=stoch)
@@ -116,7 +117,7 @@ class RSSM(nj.Module):
       x = self.get(f'img{i}', Linear, self.hidden, **kw)(x)
     return self._logit('imglogit', x)
 
-  def _gru(self, deter, stoch, action):
+  def _gru(self, deter, stoch, action, context):
     kw = dict(**self.kw, norm=self.norm, act=self.act)
     inkw = {**self.kw, 'norm': self.norm, 'binit': False}
     stoch = stoch.reshape((stoch.shape[0], -1))
@@ -126,6 +127,11 @@ class RSSM(nj.Module):
       x1 = self.get('dynin1', Linear, self.hidden, **inkw)(stoch)
       x2 = self.get('dynin2', Linear, self.hidden, **inkw)(action)
       x = jnp.concatenate([x0, x1, x2], -1)
+      xs = [x0, x1, x2]
+      if self.is_contextual:
+        x3 = self.get('dynin3', Linear, self.hidden, **inkw)(context)
+        xs.append(x3)
+      x = jnp.concatenate(xs, -1)
       for i in range(self.dynlayers):
         x = self.get(f'dyn{i}', Linear, self.hidden, **kw)(x)
       x = self.get('dyncore', Linear, 3 * self.deter, **self.kw)(x)
@@ -140,6 +146,11 @@ class RSSM(nj.Module):
       x1 = self.get('dynin1', Linear, self.hidden, **inkw)(stoch)
       x2 = self.get('dynin2', Linear, self.hidden, **inkw)(action)
       x = jnp.concatenate([x0, x1, x2], -1)
+      xs = [x0, x1, x2]
+      if self.is_contextual:
+        x3 = self.get('dynin3', Linear, self.hidden, **inkw)(context)
+        xs.append(x3)
+      x = jnp.concatenate(xs, -1)
       for i in range(self.dynlayers):
         x = self.get(f'dyn{i}', Linear, self.hidden, **kw)(x)
       x = self.get('dyncore', Linear, 2 * self.deter, **self.kw)(x)
@@ -156,6 +167,10 @@ class RSSM(nj.Module):
       x1 = self.get('dynin1', Linear, self.hidden, **kw)(stoch)
       x2 = self.get('dynin2', Linear, self.hidden, **kw)(action)
       x = jnp.concatenate([x0, x1, x2], -1)[..., None, :].repeat(g, -2)
+      xs = [x0, x1, x2]
+      if self.is_contextual:
+        x3 = self.get('dynin3', Linear, self.hidden, **kw)(context)            
+        x = jnp.concatenate(xs, -1)[..., None, :].repeat(g, -2)
       x = group2flat(jnp.concatenate([flat2group(deter), x], -1))
       for i in range(self.dynlayers):
         x = self.get(
