@@ -6,10 +6,10 @@ import threading
 import time
 import traceback
 
-import embodied
 import numpy as np
 import psutil
 
+from ... import embodied
 
 _PRINT_LOCK = None
 def get_print_lock():

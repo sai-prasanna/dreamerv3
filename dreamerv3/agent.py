@@ -8,9 +8,7 @@ import numpy as np
 import optax
 import ruamel.yaml as yaml
 
-import embodied
-
-from . import jaxagent, jaxutils, nets
+from . import jaxagent, jaxutils, nets, embodied
 from . import ninjax as nj
 
 f32 = jnp.float32

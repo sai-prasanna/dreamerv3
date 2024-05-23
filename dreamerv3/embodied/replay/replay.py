@@ -4,9 +4,9 @@ from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial as bind
 
-import embodied
 import numpy as np
 
+from ... import embodied
 from . import chunk as chunklib
 from . import limiters
 from . import selectors

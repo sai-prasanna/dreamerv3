@@ -1,7 +1,8 @@
 import io
 
-import embodied
 import numpy as np
+
+from ... import embodied
 
 
 class Chunk:

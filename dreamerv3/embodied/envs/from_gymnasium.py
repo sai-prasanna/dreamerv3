@@ -15,9 +15,10 @@
 import functools
 from typing import Any, Generic, TypeVar, Union, cast, Dict
 
-import embodied
 import gymnasium # type: ignore # Users should install gymnasium themselves
 import numpy as np
+
+from ... import embodied
 
 U = TypeVar('U')
 V = TypeVar('V')

@@ -15,8 +15,8 @@ warnings.filterwarnings('ignore', '.*using stateful random seeds*')
 warnings.filterwarnings('ignore', '.*is a deprecated alias for.*')
 warnings.filterwarnings('ignore', '.*truncated to dtype int32.*')
 
-import embodied
-from embodied import wrappers
+from . import embodied
+from .embodied import wrappers
 
 
 def main(argv=None):
