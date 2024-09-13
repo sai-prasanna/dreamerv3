@@ -1,7 +1,6 @@
 import re
 from functools import partial as bind
 
-import embodied
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -12,6 +11,7 @@ from . import jaxagent
 from . import jaxutils
 from . import nets
 from . import ninjax as nj
+from . import embodied
 
 f32 = jnp.float32
 treemap = jax.tree_util.tree_map

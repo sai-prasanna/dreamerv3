@@ -15,8 +15,8 @@ warnings.filterwarnings('ignore', '.*using stateful random seeds*')
 warnings.filterwarnings('ignore', '.*is a deprecated alias for.*')
 warnings.filterwarnings('ignore', '.*truncated to dtype int32.*')
 
-import embodied
-from embodied import wrappers
+from . import embodied
+from .embodied import wrappers
 
 
 def main(argv=None):
@@ -191,8 +191,8 @@ def make_replay(config, directory=None, is_eval=False, rate_limit=False):
 def make_env(config, index, **overrides):
   suite, task = config.task.split('_', 1)
   if suite == 'memmaze':
-    from embodied.envs import from_gym
     import memory_maze  # noqa
+    from embodied.envs import from_gym
   ctor = {
       'dummy': 'embodied.envs.dummy:Dummy',
       'gym': 'embodied.envs.from_gym:FromGym',
